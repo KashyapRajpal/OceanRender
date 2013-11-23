@@ -16,7 +16,7 @@ Shader "Example/Linear Fog" {
     _xWaterLevel ("X Water Level", Range(-1,1)) = 1
     _rSpaceFreq ("RSpace Frequency", Range(-1,100)) = 1
     _xAmbient ("Ambient", Range(0,1)) = 0.2
-    _xFresnelDistance ("Fresnel Distance", Range(0,1)) = 1
+    _xFresnelDistance ("Fresnel Distance", Range(0,1000)) = 1
     _xDullFactor ("Dull Factor", Range(0,1)) = 0.5
     _LightDirection ("Light Direction", Vector) = (0,0,0,0)
     _UVDisplacementVelocity ("UV Displacement Velocity", Vector) = (-0.04, 0.002,0,0)
@@ -127,10 +127,8 @@ Shader "Example/Linear Fog" {
 		
 		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
 		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
-		//fresnelTerm = 0;
+		//fresnelTerm = 0.5;
 		float3 finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm);
-
-
 
 		// ADDING DULL COLOR
 		float3 dullColor = float3(0.1,0.25,0.5);
