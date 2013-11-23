@@ -127,7 +127,7 @@ Shader "Example/Linear Fog" {
 		
 		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
 		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
-		fresnelTerm = 1;
+		//fresnelTerm = 0;
 		float3 finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm);
 
 
