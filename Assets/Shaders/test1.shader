@@ -20,27 +20,33 @@ Shader "Example/Linear Fog" {
     _xDullFactor ("Dull Factor", Range(0,1)) = 0.5
     _LightDirection ("Light Direction", Vector) = (0,0,0,0)
     _UVDisplacementVelocity ("UV Displacement Velocity", Vector) = (-0.04, 0.002,0,0)
+	_ReflectionDistortion ("Reflection Distortion", Range(0,1)) = 0.5
   }
   SubShader {
     Tags { "RenderType"="Opaque" }
     LOD 200
- 
+  
     CGPROGRAM
+    #pragma glsl
     #pragma target 3.0
-    #pragma surface surf Lambert finalcolor:WaterPS vertex:WaterVS
+    #pragma debug
+    #pragma surface surf Lambert finalcolor:WaterPS vertex:WaterVS nolightmap nodirlightmap
 	#include "UnityCG.cginc"
 
-    sampler2D _MainTex;
-    sampler2D _BumpMap;
+    sampler2D _MainTex: register(s0);
+    sampler2D _BumpMap: register(s2);
     sampler2D _RefractionMap;
-    sampler2D _ReflectionMap;
-    
+    sampler2D _ReflectionMap: register(s3); 
+    sampler2D _GrabTexture : register(s4);
+	
     struct Input {
       float2 uv_MainTex;
       float3 normal;
+      float3 Position3D;
       float phase;
       float4 RefractionMapSamplingPos;
-      float3 Position3D;
+      float3 viewDir;
+	  float4 screenPos;
       float3 worldRefl;
       INTERNAL_DATA
     }; 
@@ -60,6 +66,9 @@ Shader "Example/Linear Fog" {
 	float _rSpaceFreq = 0; 
 	float3 _LightDirection;
 	float2 _UVDisplacementVelocity;
+	float4 _GrabTexture_TexelSize;
+	float _ReflectionDistortion;
+	
 
     void WaterVS (inout appdata_full v, out Input data) {
 		UNITY_INITIALIZE_OUTPUT(Input,data);
@@ -103,31 +112,55 @@ Shader "Example/Linear Fog" {
  			temp = power * Cos * pow ( Sin, power-1 ); 
 
 		data.phase = Sin*Sin/2+0.5;
-		data.RefractionMapSamplingPos = originalUV;
+		float4 posx = mul(UNITY_MATRIX_MVP, v.vertex);
+		
+		data.RefractionMapSamplingPos = ComputeScreenPos(posx);
 		data.uv_MainTex = v.texcoord;
 		data.normal = v.normal;
 		data.Position3D = pPos; 
-
     }
     
      
      
     void WaterPS (Input IN, SurfaceOutput o, inout fixed4 color) {
           
-		float3 normal = tex2D(_BumpMap,IN.RefractionMapSamplingPos.xy)* 2.0 - 1.0; 
+		float3 normal = tex2D(_BumpMap,IN.uv_MainTex.xy); 
 		float3 newNormal = normalize(normalize(IN.normal) + normal); 
 
 		//ADDS REFLECTION AND REFRACTION
-		float2 RefractionSampleTexCoords; 
-		RefractionSampleTexCoords.x = IN.RefractionMapSamplingPos.x;///IN.RefractionMapSamplingPos.w/2.0f + 0.5f; 
-		RefractionSampleTexCoords.y = -IN.RefractionMapSamplingPos.y;///IN.RefractionMapSamplingPos.w/2.0f + 0.5f; 
+		//float2 RefractionSampleTexCoords; 
+		//RefractionSampleTexCoords.x = IN.RefractionMapSamplingPos.x;///IN.RefractionMapSamplingPos.w/2.0f + 0.5f; 
+		//RefractionSampleTexCoords.y = -IN.RefractionMapSamplingPos.y;///IN.RefractionMapSamplingPos.w/2.0f + 0.5f; 
 
-		float4 refractiveColor = tex2D(_RefractionMap, RefractionSampleTexCoords-newNormal*0.2);
-		float4 reflectiveColor = tex2D(_ReflectionMap, RefractionSampleTexCoords+newNormal*0.2);
+		//float4 refractiveColor = tex2D(_RefractionMap, RefractionSampleTexCoords-newNormal*0.2);
+		//float4 reflectiveColor = tex2D(_ReflectionMap, RefractionSampleTexCoords+newNormal*0.2);
 		
+		float _BumpReflectionStr = 1f;
+		
+		//float3 worldRefl = WorldReflectionVector(IN, normal*half3(_BumpReflectionStr,_BumpReflectionStr,_BumpReflectionStr));
+		//worldRefl.y = -worldRefl.y;
+		//worldRefl.x = -worldRefl.x;
+	
+		//float2 offset = newNormal * _GrabTexture_TexelSize.xy;
+
+		//IN.screenPos.xy = offset + IN.screenPos.xy;
+		//IN.screenPos.y *= -1;
+	 
+	 
+		float4 uv1 = IN.RefractionMapSamplingPos; uv1.xy += newNormal * _ReflectionDistortion;
+		float4 uvfinal = UNITY_PROJ_COORD(uv1);
+		uvfinal.y = uvfinal.y *-1;
+		float reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );
+	
+		//float reflectiveColor = tex2Dproj(_ReflectionMap, IN.screenPos);
+	
+		float4 refractiveColor = 0;
+			
 		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
+		//float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
 		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
-		//fresnelTerm = 0.5;
+		
+		fresnelTerm = 1;
 		float3 finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm);
 
 		// ADDING DULL COLOR
@@ -158,8 +191,8 @@ Shader "Example/Linear Fog" {
 		finalColor = finalColor*lightingFactor+specColor;
 
 		color =  float4(finalColor, 1.0f); 
-	 
-
+	  
+ 
     }
 
     void surf (Input IN, inout SurfaceOutput o) {
