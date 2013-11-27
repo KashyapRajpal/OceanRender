@@ -16,13 +16,14 @@ Shader "Example/Linear Fog" {
     _xWaterLevel ("X Water Level", Range(-1,1)) = 1
     _rSpaceFreq ("RSpace Frequency", Range(-1,100)) = 1
     _xAmbient ("Ambient", Range(0,1)) = 0.2
-    _xFresnelDistance ("Fresnel Distance", Range(0,1000)) = 1
+    _xFresnelDistance ("Fresnel Distance", Range(0,100)) = 1
     _xDullFactor ("Dull Factor", Range(0,1)) = 0.5
     _LightDirection ("Light Direction", Vector) = (0,0,0,0)
     _UVDisplacementVelocity ("UV Displacement Velocity", Vector) = (-0.04, 0.002,0,0)
 	_ReflectionDistortion ("Reflection Distortion", Range(0,1)) = 0.5
 	_RefractionDistortion ("Refractive Distortion", Range(0,1)) = 0.5
 	_RefractionColor ("Refraction color", COLOR)  = ( .34, .85, .92, 1)
+	_SpecularPower ("Specular Power Coefficent", Range(2,64)) = 16
   }
   SubShader {
     Tags { "RenderType"="Opaque" }
@@ -32,7 +33,7 @@ Shader "Example/Linear Fog" {
     #pragma glsl
     #pragma target 3.0
     #pragma debug
-    #pragma surface surf Lambert finalcolor:WaterPS vertex:WaterVS nolightmap nodirlightmap
+    #pragma surface surf Lambert finalcolor:WaterPS vertex:WaterVS
 	#include "UnityCG.cginc"
 
     sampler2D _MainTex: register(s0);
@@ -72,6 +73,7 @@ Shader "Example/Linear Fog" {
 	float _ReflectionDistortion;
 	float _RefractionDistortion;
 	float4 _RefractionColor;
+	float _SpecularPower;
 	
 
     void WaterVS (inout appdata_full v, out Input data) {
@@ -131,20 +133,18 @@ Shader "Example/Linear Fog" {
 		float3 normal = tex2D(_BumpMap,IN.uv_MainTex.xy); 
 		float3 newNormal = normalize(normalize(IN.normal) + normal); 
 
-		//ADDS REFLECTION AND REFRACTION
+		//ADDS REFLECTION
 		float4 uv1 = IN.RefractionMapSamplingPos; uv1.xy += newNormal * _ReflectionDistortion;
 		float4 uvfinal = UNITY_PROJ_COORD(uv1);
 		uvfinal.y = uvfinal.y *-1;
-		float reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );
+		float4 reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );
 	
+		//ADDS REFRACTION
 		float4 uv2 = IN.RefractionMapSamplingPos; uv2.xy -= newNormal * _RefractionDistortion;
 		float4 refractiveColor = tex2Dproj( _RefractionMap, UNITY_PROJ_COORD(uv2) ) * _RefractionColor;
 			
 		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
-		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
-		//float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance)+0.0000001; 
-		
-		//fresnelTerm = 1;
+		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.viewDir.xy)/ _xFresnelDistance)+0.0000001; 
 		float3 finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm);
 
 		// ADDING DULL COLOR
@@ -157,19 +157,19 @@ Shader "Example/Linear Fog" {
 		
 		// ADDS TEXTURE COLOR
 		float3 textureColor = tex2D (_MainTex, IN.uv_MainTex);
-		finalColor = (finalColor * 0.75) + (textureColor * 0.25);
+		finalColor = (finalColor * 0.85) + (textureColor * 0.15);
 		
 		
 		//lighting factor computation 
 		float3 LightDirection = normalize(_LightDirection); 
 		float lightingFactor = saturate(saturate(dot(normal, LightDirection)) + _xAmbient); 
 		
-		float3 lightDir = normalize(float3(10.84,-12.99,3)); 
-		float3 eyeVector = normalize(_WorldSpaceCameraPos.xyz - IN.Position3D.xyz); 
+		float3 lightDir = normalize(_LightDirection); 
+		float3 eyeVector = normalize(_WorldSpaceCameraPos.xyz - IN.viewDir.xyz); 
 		float3 halfVector = normalize(lightDir + eyeVector); 
 
 		float temp = 0; 
-		temp = pow(dot(halfVector,normalize(IN.normal+normal/1.5)),16); 
+		temp = pow(dot(halfVector,normalize(IN.normal+normal/1.5)),_SpecularPower); 
 		float3 specColor = float3(0.98,0.97,0.7)*temp; 
 
 		finalColor = finalColor*lightingFactor+specColor;
