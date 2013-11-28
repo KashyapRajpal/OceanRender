@@ -135,12 +135,14 @@ Shader "Example/Linear Fog" {
 
 		//ADDS REFLECTION
 		float4 uv1 = IN.RefractionMapSamplingPos; uv1.xy += newNormal * _ReflectionDistortion;
+		uv1.y +=4;
 		float4 uvfinal = UNITY_PROJ_COORD(uv1);
 		uvfinal.y = uvfinal.y *-1;
 		float4 reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );
 	
 		//ADDS REFRACTION
 		float4 uv2 = IN.RefractionMapSamplingPos; uv2.xy -= newNormal * _RefractionDistortion;
+		uv2.y -= 3;
 		float4 refractiveColor = tex2Dproj( _RefractionMap, UNITY_PROJ_COORD(uv2) ) * _RefractionColor;
 			
 		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
