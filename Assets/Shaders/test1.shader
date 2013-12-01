@@ -5,17 +5,14 @@ Shader "Example/Linear Fog" {
     _BumpMap ("Bumpmap", 2D) = "bump" {}
     _RefractionMap ("Refraction Map", 2D) = "refraction" {}
     _ReflectionMap ("Reflection Map", 2D) = "reflection" {}
-    _WaveDirX ("Wave Direction X", Range(-1,1)) = 1
-    _WaveDirY ("Wave Direction Y", Range(-1,1)) = 1
+	_ReflectionEnabled ("Reflection Enabled", Range(0,1)) = 1
+	_RefractionEnabled ("Refracction Enabled", Range(0,1)) = 1
+	_TextureEnabled ("Texture Color Enabled", Range(0,1)) = 1
+	_LightningEnabled ("Lightning Enabled", Range(0,1)) = 1
     _SpaceFreq ("Space Frequency", Range(-1,100)) = 1
     _TimeFreq ("Time Frequency", Range(0,1)) = 0.5
     _Amplitudes ("Amplitudes", Vector) = (0,0,0,0)
-    _rAmplitudes ("RAmplitudes", Range(-1,1)) = 0.5
-    _xIslandScale ("X Island Scale", Range(-1,1)) = 1
-    _xWaterSlope ("X Water Slope", Range(-1,100)) = 1
-    _xWaterLevel ("X Water Level", Range(-1,1)) = 1
-    _rSpaceFreq ("RSpace Frequency", Range(-1,100)) = 1
-    _xAmbient ("Ambient", Range(0,1)) = 0.2
+    _xAmbient ("Ambient Light Factor", Range(0,1)) = 0.2
     _xFresnelDistance ("Fresnel Distance", Range(0,100)) = 1
     _xDullFactor ("Dull Factor", Range(0,1)) = 0.5
     _LightDirection ("Light Direction", Vector) = (0,0,0,0)
@@ -57,138 +54,159 @@ Shader "Example/Linear Fog" {
     float _xDullFactor;
     float _xFresnelDistance; 
     float _xAmbient;
-	float _WaveDirX; 
-    float _WaveDirY; 
     float _SpaceFreq;
     float _TimeFreq;
     float4 _Amplitudes;
-	float _rAmplitudes = 0;
-	float _xIslandScale = 0;
-	float _xWaterSlope = 0;
-	float _xWaterLevel = 0;
-	float _rSpaceFreq = 0; 
+	float _rAmplitudes = 1;
+	float _rSpaceFreq = 1; 
 	float3 _LightDirection;
 	float2 _UVDisplacementVelocity;
-	float4 _GrabTexture_TexelSize;
 	float _ReflectionDistortion;
 	float _RefractionDistortion;
 	float4 _RefractionColor;
 	float _SpecularPower;
-	
+	int _ReflectionEnabled;
+	int _RefractionEnabled;
+	int _TextureEnabled;
+	int _LightningEnabled;
 
     void WaterVS (inout appdata_full v, out Input data) {
 		UNITY_INITIALIZE_OUTPUT(Input,data);
-      
-		float4 pPos = v.vertex;
-		float4 correctionPhase = (_WaveDirX * pPos.x + _WaveDirY * pPos.y) * _SpaceFreq + 10 * _Time * _TimeFreq;
-
-		float4 cCos,cSin; 
+      	float4 cCos,cSin;
+		float4 vertexPosition = v.vertex;
+		
+		//Calculates correction phase/height based on vertex position, space frequency and time
+		float4 correctionPhase = (vertexPosition.x + vertexPosition.y) * _SpaceFreq + _Time * _TimeFreq;
 		sincos(correctionPhase,cSin,cCos); 
 		float correctionHeight = dot(cSin, _Amplitudes/2); 
 
 		//radial waves 
-		float distance = length(float2(pPos.x - 64 * _xIslandScale, pPos.y - 64 * _xIslandScale)); 
+		float distance = length(float2(vertexPosition.x, vertexPosition.y)); 
 		float Phase = distance * -_rSpaceFreq + _Time * 2 * -_TimeFreq; 
  
-
-		//Calculating waveheight 
+		//Calcule waveheight according to amplitudes and correction phase
 		float Cos,Sin; 
 		int power = 7; 
 		sincos(Phase,Sin,Cos); 
 		float temp2 = 1; 
 		if (Cos * Sin < 0) 
 			temp2 = 2;
-			 	 
-		float WaveHeight = clamp(pow(Sin,power) * _rAmplitudes * temp2 - (_rAmplitudes*(temp2-1)), 0, _rAmplitudes) + 
-			(_xIslandScale * 128 - distance)/_xWaterSlope/2 + _xWaterLevel + correctionHeight; 
-
-		//moves the water in the 
-		float4 newPos = pPos + float4(0,WaveHeight,0,0);
-		v.vertex.xyz = newPos; 
+		float WaveHeight = clamp(pow(Sin,power) * _rAmplitudes * temp2 - (_rAmplitudes*(temp2-1)), 0, _rAmplitudes) + correctionHeight; 
 		
-		//moves uv coordinates to simulate water movement
-		float4 originalUV = (v.texcoord);
+		//adds the calculated wave height to the current vertex position
+		float4 newPosition = vertexPosition + float4(0,WaveHeight,0,0);
+		v.vertex.xyz = newPosition; 
+		
+		//moves uv coordinates to simulate water movement. U and V are tiled by a factor of 10. Also velocity is considered to move UVs
 		v.texcoord.xy = float2(v.texcoord.x/10, v.texcoord.y/10) + _UVDisplacementVelocity *_Time;
 		 	  		  
-		float3 normal_before = v.normal; 	  		  
+		//assign the new normal for the vertex. We use X and Y Axis to calculate a normalized Z axis			  
 		v.normal = normalize(cross( float3(0,1,0), float3(1,0,0))); 
 
-		float temp = 0; 
- 		if (Sin > 0) 
- 			temp = power * Cos * pow ( Sin, power-1 ); 
-
 		data.phase = Sin*Sin/2+0.5;
-		float4 posx = mul(UNITY_MATRIX_MVP, v.vertex);
 		
-		data.RefractionMapSamplingPos = ComputeScreenPos(posx);
+		//calculates projected vertex position in Homogeneous Space using the Model View Projection Matrix
+		float4 projectedPosition = mul(UNITY_MATRIX_MVP, newPosition);
+		
+		//output variables
+		data.RefractionMapSamplingPos = ComputeScreenPos(projectedPosition); //Projected Screen Space position
 		data.uv_MainTex = v.texcoord;
 		data.normal = v.normal;
-		data.Position3D = pPos; 
+		data.Position3D = newPosition; 
     }
     
-     
-     
     void WaterPS (Input IN, SurfaceOutput o, inout fixed4 color) {
-          
+         
+		float3 finalColor =0;
+		 
+		//retrieve normal from the Bump/Normal map using the displaced UVs
 		float3 normal = tex2D(_BumpMap,IN.uv_MainTex.xy); 
+		
+		//calculate new normal bu adding Bump normal and normal calculated every vertex
 		float3 newNormal = normalize(normalize(IN.normal) + normal); 
 
-		//ADDS REFLECTION
-		float4 uv1 = IN.RefractionMapSamplingPos; uv1.xy += newNormal * _ReflectionDistortion;
-		uv1.y +=4;
-		float4 uvfinal = UNITY_PROJ_COORD(uv1);
-		uvfinal.y = uvfinal.y *-1;
-		float4 reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );
+		//////////// ADDS REFLECTION
+		
+		float4 uv1 = IN.RefractionMapSamplingPos; 
+		uv1.xy += newNormal * _ReflectionDistortion;  					//add the new normal multiplied by a distortion parameter
+		uv1.y +=4;														//add some perturbation on Y axis
+		float4 uvfinal = UNITY_PROJ_COORD(uv1);  						//calculates a texture coordinate suitable for projected texture reads
+		uvfinal.y = uvfinal.y *-1;										//flips Y Axis
+		float4 reflectiveColor = tex2Dproj( _ReflectionMap, uvfinal );  //performs a texture lookup with projection in the Reflection Map
 	
-		//ADDS REFRACTION
-		float4 uv2 = IN.RefractionMapSamplingPos; uv2.xy -= newNormal * _RefractionDistortion;
-		uv2.y -= 3;
-		float4 refractiveColor = tex2Dproj( _RefractionMap, UNITY_PROJ_COORD(uv2) ) * _RefractionColor;
-			
-		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 
-		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.viewDir.xy)/ _xFresnelDistance)+0.0000001; 
-		float3 finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm);
+		//////////// ADDS REFRACTION
+		
+		float4 uv2 = IN.RefractionMapSamplingPos; 
+		uv2.xy -= newNormal * _RefractionDistortion;					//substract the new normal multiplied by a distortion parameter
+		float4 uvfinalR = UNITY_PROJ_COORD(uv2); 						//calculates a texture coordinate suitable for projected texture reads
+		float4 refractiveColor = tex2Dproj( _RefractionMap, uvfinalR); 	//performs a texture lookup with projection in the Refraction Map
+		refractiveColor *= refractiveColor;								//multiplies calculated value by the refraction color
 
-		// ADDING DULL COLOR
-		float3 dullColor = float3(0.1,0.25,0.5);
-		float dullFactor = _xDullFactor;
-		dullFactor = saturate(dullFactor * (1+IN.phase*IN.phase*IN.phase*IN.phase));
+		
+		//////////// CALCULATE FRESNEL TERM
+		
+		//calculate fresnel according to the position of camera and every vertex
+		float fresnelTerm = saturate(length(_WorldSpaceCameraPos.xy - IN.Position3D.xy)/ _xFresnelDistance);  
+		
+		//add refraction/reflection color according to fresnel term
+		if((_ReflectionEnabled ==1) && (_RefractionEnabled))
+		{
+			finalColor = reflectiveColor * fresnelTerm + refractiveColor * (1-fresnelTerm); 
+		}
+		else
+		{
+			if(_ReflectionEnabled == 1)
+				finalColor = reflectiveColor;	
+			if(_RefractionEnabled == 1)
+				finalColor = refractiveColor;
+		}
 
-		finalColor = finalColor *(1 - dullFactor) + dullColor *dullFactor;
+		//////////// ADD DULL COLOR
+		
+		float phase = (_rAmplitudes-clamp(IN.phase,0,_rAmplitudes)); 						//clamps the phase between 0 and the amplitud values
+		float3 dullColor = float3(0.1,0.25,0.5);											//predefined dull color
+		_xDullFactor = saturate(_xDullFactor * (1+IN.phase*IN.phase*IN.phase*IN.phase)); 	//calculate dull factor according to the phase.
+		finalColor = finalColor *(1 - _xDullFactor) + dullColor *_xDullFactor;				//add dull color according to dill factor.
 		
 		
-		// ADDS TEXTURE COLOR
-		float3 textureColor = tex2D (_MainTex, IN.uv_MainTex);
-		finalColor = (finalColor * 0.85) + (textureColor * 0.15);
+		//////////// ADD TEXTURE COLOR
+		
+		float3 textureColor = tex2D (_MainTex, IN.uv_MainTex);			//lookup water texture using calculated UV for every pixel
+		
+		if(_TextureEnabled == 1)
+			finalColor = (finalColor * 0.90) + (textureColor * 0.10);		//combines color with texture color. 10% texture color
 		
 		
-		//lighting factor computation 
-		float3 LightDirection = normalize(_LightDirection); 
-		float lightingFactor = saturate(saturate(dot(normal, LightDirection)) + _xAmbient); 
+		//////////// ADD LIGHTNING COLOR
 		
-		float3 lightDir = normalize(_LightDirection); 
+		//normalizes sun light direction parameter
+		float3 LightDirection = normalize(_LightDirection); 								
+		
+		//calculates lightning factor according to the calculated normal and the sun light direction. 
+		//Also, ambient light factor is considered as parameter.
+		float lightingFactor = saturate(saturate(dot(newNormal, LightDirection)) + _xAmbient); 
+		
+		//calculates camera vector according to camera position and vertex position
 		float3 eyeVector = normalize(_WorldSpaceCameraPos.xyz - IN.viewDir.xyz); 
-		float3 halfVector = normalize(lightDir + eyeVector); 
+		float3 halfVector = normalize(LightDirection + eyeVector); 
 
-		float temp = 0; 
-		temp = pow(dot(halfVector,normalize(IN.normal+normal/1.5)),_SpecularPower); 
-		float3 specColor = float3(0.98,0.97,0.7)*temp; 
+		//calculates specular term based on camera vector and reflection
+		float specTerm = pow(dot(halfVector,normalize(IN.normal+normal/1.5)),_SpecularPower); 
+		//multiplies specular term by the specular color
+		float3 specColor = float3(0.98,0.97,0.7) * specTerm; 
 
-		finalColor = finalColor*lightingFactor+specColor;
-
+		//adds lightning to the calculated color 
+		//multiplies calculated color with calculated specular color
+		if(_LightningEnabled == 1)
+			finalColor = finalColor*lightingFactor+specColor;
+		
 		color =  float4(finalColor, 1.0f); 
-	  
  
     }
 
-    void surf (Input IN, inout SurfaceOutput o) {
-      //half4 c = tex2D (_MainTex, IN.uv_MainTex);
-      //o.Albedo = c.rgb;
-      //o.Alpha = c.a;
-      
-      //o.Normal = IN.normal;
-      //o.Albedo = tex2D (_MainTex, IN.uv_MainTex).rgb * 0.5;
-      //o.Emission = texCUBE (_CubeMap, WorldReflectionVector(IN, o.Normal)).rgb;
+    void surf (Input IN, inout SurfaceOutput o) 
+	{
+	
     }
     ENDCG
   } 
